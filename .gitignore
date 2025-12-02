@@ -1,0 +1,63 @@
+###############################
+# STM32CubeIDE / Eclipse stuff
+###############################
+.metadata/
+.idea/
+.settings/
+.cproject
+.project
+
+# CubeIDE build folders
+Debug/
+Release/
+*/Debug/
+*/Release/
+
+# Generated build artifacts
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.srec
+
+###############################
+# Compiler / build temp files
+###############################
+*.o
+*.d
+*.build
+*.dep
+*.log
+
+# C/C++ cache files
+*.gch
+*.pch
+
+###############################
+# Additional CubeIDE auto-gen
+###############################
+*.launch
+*.mxproject
+*.mx*
+*.ioc-backup*
+
+# Linker backups
+*.ld-backup*
+
+###############################
+# OS junk
+###############################
+# Windows
+Thumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
+
+###############################
+# Optional: Ignore local libs
+###############################
+/libs/*/Debug/
+/libs/*/Release/
+
