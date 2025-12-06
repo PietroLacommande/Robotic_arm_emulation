@@ -166,6 +166,7 @@ int main(void)
 	    tx_bytes[0] = base_angle;
 	    tx_bytes[1] = base_angle2;
 	    tx_bytes[2] = base_angle15;
+
         HAL_Delay(100);
 	    // Transmettre les données par SPI
 	    HAL_SPI_Transmit(&hspi1, tx_bytes, 3, HAL_MAX_DELAY);
