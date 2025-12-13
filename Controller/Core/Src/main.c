@@ -72,6 +72,9 @@ void PwmStop(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumb
 void angleCorrectionMinus90();
 int8_t verifyPosition(int8_t desiredBase, int8_t actualBase);
 void initialPosition();
+void turnOnLedGreen();
+void turnOffLedGreen();
+void activateGripper();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -117,15 +120,17 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   PwmStart(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
-
+  int8_t y_position= 65;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  sendCCR(30,65,10);
-	  HAL_Delay(100);
+	  ccrAnlge = ArmAnglesCCR_centered(30,y_position,10);
+	  turnOnLedGreen();
+	  sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
+	  HAL_Delay(100); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
 	  readAngles();
 	  angleCorrectionMinus90();
 	  int result = verifyPosition(30, tx_bytes_corrected[0]);
@@ -135,14 +140,13 @@ int main(void)
 	  }
 
 	  else if(result ==1){
-		  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); //activer la pince pour saisir objet
+		  activateGripper();
 		  if(readAdc()>0.1){
 			  initialPosition();
-			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //green light instead of red light to indicate motors stopped
+			  turnOffLedGreen();
+//			  y_position *= (-1);
 		  }
-
 	  }
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -199,7 +203,18 @@ void SystemClock_Config(void)
   }
 }
 
+
+
 /* USER CODE BEGIN 4 */
+void activateGripper(){
+	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); //activer la pince pour saisir objet
+}
+void turnOffLedGreen(){
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //green light instead of red light to indicate motors stopped
+}
+void turnOnLedGreen(){
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //green light instead of red light to indicate motors moving
+}
 void initialPosition(){
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, INITIAL_POSITION_SERVO);
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, INITIAL_POSITION_SERVO);
@@ -208,8 +223,8 @@ void initialPosition(){
 
 
 int8_t verifyPosition(int8_t desiredBase, int8_t actualBase){
-	float error = fabs((fabs((float)desiredBase)- fabs((float)actualBase)));
-	if(error <10){
+	float error = (float)desiredBase - (float)actualBase;
+	if(error >=0.0 && error <10.0){
 		return 1; //success
 	}
 	else {
@@ -226,17 +241,15 @@ void angleCorrectionMinus90(){
 
 void readAngles(){
 	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
-	 HAL_SPI_Receive(&hspi2, tx_bytes, 3, 1000); //1000ms delay
+	 HAL_SPI_Receive(&hspi2, tx_bytes, 3, 500); //500ms delay
 	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
 
 void sendCCR(double x, double y, double z){
-	ccrAnlge = ArmAnglesCCR_centered(x,y,z);
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //green light instead of red light to indicate motors moving
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, ccrAnlge.ccr_base); //PA10 -> PA8
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccrAnlge.ccr_a1); //PA9 ->
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, ccrAnlge.ccr_a2); //PA8
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, x); //PA10 -> PA8
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, y); //PA9 ->
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, z); //PA8
 }
 
 void PwmStart(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3){

@@ -625,7 +625,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
         else
         {
             period = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
-            period = period -(14 * (period / 100)) ;  // Calibration 4%
+            period = period -(14 * (period / 100)) ;  // Calibration 14%
             first_capt1 = 0;
             __HAL_TIM_SET_CAPTUREPOLARITY(&htim1, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
         }
@@ -642,7 +642,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
         else
         {
             period2 = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_1);
-            period2 = period2 - (4 * (period2 / 100));  // calibration
+            period2 = period2 - (1 * (period2 / 100));  // calibration
             first_capt2 = 0;
             __HAL_TIM_SET_CAPTUREPOLARITY(&htim2, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
         }
@@ -659,7 +659,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
         else
         {
             period15 = HAL_TIM_ReadCapturedValue(&htim15, TIM_CHANNEL_2);
-            period15 = period15 - (4 * (period15 / 100));  // calibration
+            period15 = period15 - (-32 * (period15 / 100));  // calibration
             first_capt15 = 0;
             __HAL_TIM_SET_CAPTUREPOLARITY(&htim15, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_RISING);
         }
