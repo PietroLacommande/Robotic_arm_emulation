@@ -70,12 +70,13 @@ void sendCCR(uint16_t x, uint16_t y, uint16_t z);
 void readAngles();
 void PwmStop(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3);
 void angleCorrectionMinus90();
-int8_t verifyPosition(double desiredBase, int8_t actualBase);
+int8_t verifyPosition(double desiredBase, int8_t actualBase, float* result);
 void initialPosition();
 void turnOnLedGreen();
 void turnOffLedGreen();
 void activateGripper();
 uint16_t angle_to_ccr(double angle);
+uint16_t correctAngle(int8_t base_meas, float base_error);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -123,6 +124,7 @@ int main(void)
 
   PwmStart(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
   int8_t y_position= 65;
+  float base_error;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -135,34 +137,16 @@ int main(void)
 	  HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
 	  readAngles();
 	  angleCorrectionMinus90();
-	  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0]);
+	  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0], &base_error);
 	  if(result ==-1){
 		  //angle correction code TODO here
-
-		    // Measured base angle (already corrected -90)
-		    double base_meas = tx_bytes_corrected[0];
-
-		    // Desired base angle
-		    double base_ref = ccrAnlge.angle_base;
-
-		    // Error
-		    double error = base_ref - base_meas;
-
-		    // Apply ±10° correction
-		    if (error > 0)
-		        base_meas -= error;
-		    else
-		        base_meas += error;
-
-		    // Convert corrected angle → CCR
-		    uint16_t corrected_ccr_base = angle_to_ccr(base_meas);
+		  uint16_t corrected_ccr_base = correctAngle(tx_bytes_corrected[0],base_error);
 		    ccrAnlge.ccr_base= corrected_ccr_base;
-		    // Send only base correction, keep others unchanged
 		    sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
-			  HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
-			  readAngles();
-		    	  angleCorrectionMinus90();
-		    	  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0]);
+		    HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
+		    readAngles();
+		    angleCorrectionMinus90();
+		  	int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0], &base_error);
 	  }
 
 	  else if(result ==1){
@@ -235,7 +219,19 @@ void SystemClock_Config(void)
 
 
 /* USER CODE BEGIN 4 */
-// Conversion CCR -> angle 0-180°
+uint16_t correctAngle(int8_t base_meas, float base_error){
+	// Apply correction
+	if (base_error > 0)
+		base_meas -= base_error;
+	else
+		base_meas += base_error;
+
+	uint16_t corrected_ccr_base = angle_to_ccr(base_meas);
+	return corrected_ccr_base;
+
+}
+
+// Conversion angle 0-180° -> CCR
 uint16_t angle_to_ccr(double angle) {
 	double angle_calculated;
     if (angle < -90.0) {        // Clamp minimal
@@ -265,8 +261,9 @@ void initialPosition(){
 }
 
 
-int8_t verifyPosition(double desiredBase, int8_t actualBase){
+int8_t verifyPosition(double desiredBase, int8_t actualBase, float* result){
 	float error = fabs((float)desiredBase - (float)actualBase);
+	*result= error;
 	if(error >=0.0 && error <10.0){
 		return 1; //success
 	}

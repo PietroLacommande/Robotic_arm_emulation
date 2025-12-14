@@ -685,7 +685,7 @@ void fillBuffer(void)
 {
     for (int i = 0; i < 10; i++)
     {
-        buffer[i] = 10 + (rand() % 11);   // generates values from 10 to 20
+        buffer[i] = 11 + (rand() % 11);   // generates values from 11 to 20
     }
 }
 
