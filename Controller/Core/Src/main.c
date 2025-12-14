@@ -66,15 +66,16 @@ float adcToVolts(uint32_t rawReading);
 ArmAnglesCCR_t ArmAnglesCCR_centered(double x, double y, double z);
 float readAdc();
 void PwmStart(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3);
-void sendCCR(double x, double y, double z);
+void sendCCR(uint16_t x, uint16_t y, uint16_t z);
 void readAngles();
 void PwmStop(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3);
 void angleCorrectionMinus90();
-int8_t verifyPosition(int8_t desiredBase, int8_t actualBase);
+int8_t verifyPosition(double desiredBase, int8_t actualBase);
 void initialPosition();
 void turnOnLedGreen();
 void turnOffLedGreen();
 void activateGripper();
+uint16_t angle_to_ccr(double angle);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -82,7 +83,7 @@ void activateGripper();
 ArmAnglesCCR_t ccrAnlge;
 int8_t tx_bytes_corrected[3] = {0,0,0}; // Tableau SPI à recevoir
 uint8_t tx_bytes[3] = {0,0,0}; // Tableau SPI à recevoir
-
+volatile uint32_t nbErrors=0;
 /* USER CODE END 0 */
 
 /**
@@ -119,6 +120,7 @@ int main(void)
   MX_SPI2_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+
   PwmStart(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
   int8_t y_position= 65;
   /* USER CODE END 2 */
@@ -130,13 +132,37 @@ int main(void)
 	  ccrAnlge = ArmAnglesCCR_centered(30,y_position,10);
 	  turnOnLedGreen();
 	  sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
-	  HAL_Delay(100); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
+	  HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
 	  readAngles();
 	  angleCorrectionMinus90();
-	  int result = verifyPosition(30, tx_bytes_corrected[0]);
+	  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0]);
 	  if(result ==-1){
-		  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
 		  //angle correction code TODO here
+
+		    // Measured base angle (already corrected -90)
+		    double base_meas = tx_bytes_corrected[0];
+
+		    // Desired base angle
+		    double base_ref = ccrAnlge.angle_base;
+
+		    // Error
+		    double error = base_ref - base_meas;
+
+		    // Apply ±10° correction
+		    if (error > 0)
+		        base_meas -= error;
+		    else
+		        base_meas += error;
+
+		    // Convert corrected angle → CCR
+		    uint16_t corrected_ccr_base = angle_to_ccr(base_meas);
+		    ccrAnlge.ccr_base= corrected_ccr_base;
+		    // Send only base correction, keep others unchanged
+		    sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
+			  HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
+			  readAngles();
+		    	  angleCorrectionMinus90();
+		    	  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0]);
 	  }
 
 	  else if(result ==1){
@@ -144,7 +170,10 @@ int main(void)
 		  if(readAdc()>0.1){
 			  initialPosition();
 			  turnOffLedGreen();
-//			  y_position *= (-1);
+			  y_position *= (-1); //toggle y position
+		  }
+		  else{
+			  nbErrors++; //increment error variable
 		  }
 	  }
     /* USER CODE END WHILE */
@@ -206,6 +235,20 @@ void SystemClock_Config(void)
 
 
 /* USER CODE BEGIN 4 */
+// Conversion CCR -> angle 0-180°
+uint16_t angle_to_ccr(double angle) {
+	double angle_calculated;
+    if (angle < -90.0) {        // Clamp minimal
+        angle = -90.0;
+    }
+    else if (angle >= 90.0) { // Clamp maximal
+        angle = 90.0;
+    }
+
+    angle_calculated = (1500.0 + (angle/90.0) * 500.0);
+    return (uint16_t)angle_calculated;
+}
+
 void activateGripper(){
 	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); //activer la pince pour saisir objet
 }
@@ -222,8 +265,8 @@ void initialPosition(){
 }
 
 
-int8_t verifyPosition(int8_t desiredBase, int8_t actualBase){
-	float error = (float)desiredBase - (float)actualBase;
+int8_t verifyPosition(double desiredBase, int8_t actualBase){
+	float error = fabs((float)desiredBase - (float)actualBase);
 	if(error >=0.0 && error <10.0){
 		return 1; //success
 	}
@@ -246,7 +289,7 @@ void readAngles(){
 }
 
 
-void sendCCR(double x, double y, double z){
+void sendCCR(uint16_t x, uint16_t y, uint16_t z){
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, x); //PA10 -> PA8
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, y); //PA9 ->
 	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, z); //PA8
@@ -272,15 +315,14 @@ float adcToVolts(uint32_t rawReading){
 }
 
 float readAdc(){
-	 HAL_ADC_Start(&hadc1); //TODO, pas bon
 	 uint32_t adc_value = 0;
 	 float adc_value_VOlts = 0;
-	 if(HAL_ADC_PollForConversion(&hadc1, 10)== HAL_OK){
-		 adc_value = HAL_ADC_GetValue(&hadc1);
-		 adc_value_VOlts = adcToVolts(adc_value);
-		 /* Restart ADC conversion */
-		 HAL_ADC_Start(&hadc1);
-	  }
+	  HAL_ADC_Start(&hadc1); //TODO, pas bon
+	  HAL_ADC_PollForConversion(&hadc1, 10);
+	 adc_value = HAL_ADC_GetValue(&hadc1);
+	 adc_value_VOlts = adcToVolts(adc_value);
+	 /* Restart ADC conversion */
+	 HAL_ADC_Start(&hadc1);
 	 return adc_value_VOlts;
 }
 

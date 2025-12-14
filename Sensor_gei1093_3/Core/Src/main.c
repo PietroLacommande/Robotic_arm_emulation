@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include <stdlib.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -159,7 +159,7 @@ int main(void)
 	    // Si PA10 activé, ajuster les angles
 	    if(flag_PA10 == 1){
 		    base_angle = base_angle + value;
-//		    flag_PA10 = 0;
+		    flag_PA10 = 0;
 	    }
 
 	    // Préparer le tableau SPI
@@ -625,7 +625,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
         else
         {
             period = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
-            period = period -(14 * (period / 100)) ;  // Calibration 14%
+            period = period -(0 * (period / 100)) ;  // Calibration 14%
             first_capt1 = 0;
             __HAL_TIM_SET_CAPTUREPOLARITY(&htim1, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
         }
@@ -642,7 +642,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
         else
         {
             period2 = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_1);
-            period2 = period2 - (1 * (period2 / 100));  // calibration
+            period2 = period2 - (0 * (period2 / 100));  // calibration
             first_capt2 = 0;
             __HAL_TIM_SET_CAPTUREPOLARITY(&htim2, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
         }
@@ -659,7 +659,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
         else
         {
             period15 = HAL_TIM_ReadCapturedValue(&htim15, TIM_CHANNEL_2);
-            period15 = period15 - (-32 * (period15 / 100));  // calibration
+            period15 = period15 - (0 * (period15 / 100));  // calibration
             first_capt15 = 0;
             __HAL_TIM_SET_CAPTUREPOLARITY(&htim15, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_RISING);
         }
