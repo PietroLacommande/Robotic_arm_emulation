@@ -46,6 +46,10 @@ typedef struct {
 #define ADC_MAX_VALUE 4095 //(2^12bits) -1
 #define REF_VOLTAGE 3.3f //volts
 #define INITIAL_POSITION_SERVO 1500
+#define SUPERLOOP_PERIOD_MS 20
+#define SUPERLOOP_PERIOD_MS   1000u
+#define SERVO_SETTLE_MS      200u
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,7 +60,20 @@ typedef struct {
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+typedef enum {
+    STATE_COMPUTE,
+    STATE_SEND,
+    STATE_WAIT,
+    STATE_READ,
+    STATE_VERIFY,
+    STATE_CORRECT,
+    STATE_GRIP,
+    STATE_RESET
+} ArmState_t;
 
+static ArmState_t state = STATE_COMPUTE;
+static uint32_t loop_start_ms = 0u;
+static uint32_t wait_start_ms = 0u;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -124,42 +141,83 @@ int main(void)
 
   PwmStart(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
   int8_t y_position= 65;
-  float base_error;
+  float base_error=0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  ccrAnlge = ArmAnglesCCR_centered(30,y_position,10);
-	  turnOnLedGreen();
-	  sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
-	  HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
-	  readAngles();
-	  angleCorrectionMinus90();
-	  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0], &base_error);
-	  if(result ==-1){
-		  //angle correction code TODO here
-		  uint16_t corrected_ccr_base = correctAngle(tx_bytes_corrected[0],base_error);
-		    ccrAnlge.ccr_base= corrected_ccr_base;
-		    sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
-		    HAL_Delay(200); //delai imposé pour laisser le temps a l'emulateur de prep les donnes
-		    readAngles();
-		    angleCorrectionMinus90();
-		  	int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0], &base_error);
-	  }
+	  loop_start_ms = HAL_GetTick();
+	  switch(state){
 
-	  else if(result ==1){
-		  activateGripper();
-		  if(readAdc()>0.1){
+		  case STATE_COMPUTE:
+			  ccrAnlge = ArmAnglesCCR_centered(30,y_position,10);
+			  turnOnLedGreen();
+			  state = STATE_SEND;
+			  break;
+
+		  case STATE_SEND:
+			  sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
+			  state = STATE_WAIT;
+			  break;
+
+		  //very long, upto 200ms
+		  case STATE_WAIT:
+			  if ((HAL_GetTick() - wait_start_ms) >= SERVO_SETTLE_MS)
+			  {
+				  state = STATE_READ;
+			  }
+			  break;
+
+		  //very long, upto 200ms
+		  case STATE_READ:
+			  readAngles();
+			  angleCorrectionMinus90();
+			  state = STATE_VERIFY;
+			  break;
+
+		  case STATE_VERIFY:
+			  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0], &base_error);
+			  if(result ==-1){
+				  state = STATE_CORRECT;
+			  }
+
+			  else if(result ==1){
+				  state = STATE_GRIP;
+			  }
+			  break;
+
+		  case STATE_CORRECT:
+			  uint16_t corrected_ccr_base = correctAngle(tx_bytes_corrected[0],base_error);
+			  ccrAnlge.ccr_base= corrected_ccr_base;
+			  state = STATE_SEND;
+			  break;
+
+		  case STATE_GRIP:
+			  activateGripper();
+			  if(readAdc()>0.1){
+				  state = STATE_RESET;
+			  }
+			  else{
+				  nbErrors++; //increment error variable
+				  state = STATE_RESET;
+			  }
+			  break;
+
+		  case STATE_RESET:
 			  initialPosition();
 			  turnOffLedGreen();
 			  y_position *= (-1); //toggle y position
-		  }
-		  else{
-			  nbErrors++; //increment error variable
-		  }
+			  state = STATE_COMPUTE;
+			  break;
 	  }
+	  uint32_t elapsed_ms = HAL_GetTick() - loop_start_ms;
+	 if (elapsed_ms < SUPERLOOP_PERIOD_MS)
+	 {
+		 HAL_Delay(SUPERLOOP_PERIOD_MS - elapsed_ms);
+	 }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -281,7 +339,7 @@ void angleCorrectionMinus90(){
 
 void readAngles(){
 	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
-	 HAL_SPI_Receive(&hspi2, tx_bytes, 3, 500); //500ms delay
+	 HAL_SPI_Receive(&hspi2, tx_bytes, 3, 200); //200ms delay
 	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
@@ -314,12 +372,12 @@ float adcToVolts(uint32_t rawReading){
 float readAdc(){
 	 uint32_t adc_value = 0;
 	 float adc_value_VOlts = 0;
-	  HAL_ADC_Start(&hadc1); //TODO, pas bon
+
+	  HAL_ADC_Start(&hadc1);
 	  HAL_ADC_PollForConversion(&hadc1, 10);
 	 adc_value = HAL_ADC_GetValue(&hadc1);
+	HAL_ADC_Stop(&hadc1);
 	 adc_value_VOlts = adcToVolts(adc_value);
-	 /* Restart ADC conversion */
-	 HAL_ADC_Start(&hadc1);
 	 return adc_value_VOlts;
 }
 
