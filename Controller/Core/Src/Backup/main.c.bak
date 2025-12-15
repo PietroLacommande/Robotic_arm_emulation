@@ -45,6 +45,10 @@ typedef struct {
 /* USER CODE BEGIN PD */
 #define ADC_MAX_VALUE 4095 //(2^12bits) -1
 #define REF_VOLTAGE 3.3f //volts
+#define INITIAL_POSITION_SERVO 1500
+#define SUPERLOOP_PERIOD_MS   600u
+#define SERVO_SETTLE_MS      200u
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,6 +59,20 @@ typedef struct {
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+typedef enum {
+    STATE_COMPUTE,
+    STATE_SEND,
+    STATE_WAIT,
+    STATE_READ,
+    STATE_VERIFY,
+    STATE_CORRECT,
+    STATE_GRIP,
+    STATE_RESET
+} ArmState_t;
+
+static ArmState_t state = STATE_COMPUTE;
+volatile uint8_t superloop_tick = 0;
+static uint32_t wait_start_ms = 0u;
 
 /* USER CODE END PV */
 
@@ -63,13 +81,19 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 float adcToVolts(uint32_t rawReading);
 ArmAnglesCCR_t ArmAnglesCCR_centered(double x, double y, double z);
-void readAdc();
+float readAdc();
 void PwmStart(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3);
-void sendCCR(double x, double y, double z);
+void sendCCR(uint16_t x, uint16_t y, uint16_t z);
 void readAngles();
 void PwmStop(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3);
 void angleCorrectionMinus90();
-int8_t verifyPosition(int8_t desiredBase, int8_t actualBase);
+int8_t verifyPosition(double desiredBase, int8_t actualBase, float* result);
+void initialPosition();
+void turnOnLedGreen();
+void turnOffLedGreen();
+void activateGripper();
+uint16_t angle_to_ccr(double angle);
+uint16_t correctAngle(int8_t base_meas, float base_error);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -77,7 +101,7 @@ int8_t verifyPosition(int8_t desiredBase, int8_t actualBase);
 ArmAnglesCCR_t ccrAnlge;
 int8_t tx_bytes_corrected[3] = {0,0,0}; // Tableau SPI à recevoir
 uint8_t tx_bytes[3] = {0,0,0}; // Tableau SPI à recevoir
-
+volatile uint32_t nbErrors=0;
 /* USER CODE END 0 */
 
 /**
@@ -113,28 +137,92 @@ int main(void)
   MX_ADC1_Init();
   MX_SPI2_Init();
   MX_TIM1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start_IT(&htim6);
   PwmStart(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
-  sendCCR(30,65,10);
-
+  int8_t y_position= 65;
+  float base_error=0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  HAL_Delay(100);
-	  readAngles();
-	  angleCorrectionMinus90();
-	  int result = verifyPosition(30, tx_bytes_corrected[0]);
-	  if(result ==-1){
-		  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
-//		  sendCCR(30,65,10);
+
+	  if(superloop_tick ==0){
+		  continue;
+	  }
+	  superloop_tick=0;
+
+	  switch(state){
+
+		  case STATE_COMPUTE:
+			  ccrAnlge = ArmAnglesCCR_centered(30,y_position,10);
+			  turnOnLedGreen();
+			  state = STATE_SEND;
+			  break;
+
+		  case STATE_SEND:
+			  sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
+			  wait_start_ms = HAL_GetTick();
+			  state = STATE_WAIT;
+			  break;
+
+		  //very long, upto 200ms
+		  case STATE_WAIT:
+			   if ((HAL_GetTick() - wait_start_ms) >= SERVO_SETTLE_MS){
+					state = STATE_READ;
+			   }
+			  break;
+
+		  //very long, upto 200ms
+		  case STATE_READ:
+			  readAngles();
+			  angleCorrectionMinus90();
+			  state = STATE_VERIFY;
+			  break;
+
+		  case STATE_VERIFY:
+			  int result = verifyPosition(ccrAnlge.angle_base, tx_bytes_corrected[0], &base_error);
+			  if(result ==-1){
+				  state = STATE_CORRECT;
+			  }
+
+			  else if(result ==1){
+				  state = STATE_GRIP;
+			  }
+			  break;
+
+		  case STATE_CORRECT:
+			  uint16_t corrected_ccr_base = correctAngle(tx_bytes_corrected[0],base_error);
+			  ccrAnlge.ccr_base= corrected_ccr_base;
+			  state = STATE_SEND;
+			  break;
+
+		  case STATE_GRIP:
+			  activateGripper();
+			  if(readAdc()>0.1){
+				  state = STATE_RESET;
+			  }
+			  else{
+				  nbErrors++; //increment error variable
+				  state = STATE_RESET;
+			  }
+			  break;
+
+		  case STATE_RESET:
+			  initialPosition();
+			  turnOffLedGreen();
+			  y_position = -y_position; //toggle y position
+			  state = STATE_COMPUTE;
+			  break;
+
+		  default:
+			  state = STATE_COMPUTE;
+			  break;
 	  }
 
-	  else if(result ==1){
-
-	  }
 
     /* USER CODE END WHILE */
 
@@ -193,10 +281,62 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM6)
+    {
+        superloop_tick = 1;
+    }
+}
 
-int8_t verifyPosition(int8_t desiredBase, int8_t actualBase){
-	float error = fabs((fabs((float)desiredBase)- fabs((float)actualBase)));
-	if(error <10){
+
+
+uint16_t correctAngle(int8_t base_meas, float base_error){
+	// Apply correction
+	if (base_error > 0)
+		base_meas -= base_error;
+	else
+		base_meas += base_error;
+
+	uint16_t corrected_ccr_base = angle_to_ccr(base_meas);
+	return corrected_ccr_base;
+
+}
+
+// Conversion angle 0-180° -> CCR
+uint16_t angle_to_ccr(double angle) {
+	double angle_calculated;
+    if (angle < -90.0) {        // Clamp minimal
+        angle = -90.0;
+    }
+    else if (angle >= 90.0) { // Clamp maximal
+        angle = 90.0;
+    }
+
+    angle_calculated = (1500.0 + (angle/90.0) * 500.0);
+    return (uint16_t)angle_calculated;
+}
+
+void activateGripper(){
+	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); //activer la pince pour saisir objet
+}
+void turnOffLedGreen(){
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //green light instead of red light to indicate motors stopped
+}
+void turnOnLedGreen(){
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //green light instead of red light to indicate motors moving
+}
+void initialPosition(){
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, INITIAL_POSITION_SERVO);
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, INITIAL_POSITION_SERVO);
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, INITIAL_POSITION_SERVO);
+}
+
+
+int8_t verifyPosition(double desiredBase, int8_t actualBase, float* result){
+	float error = fabs((float)desiredBase - (float)actualBase);
+	*result= error;
+	if(error >=0.0 && error <10.0){
 		return 1; //success
 	}
 	else {
@@ -213,20 +353,15 @@ void angleCorrectionMinus90(){
 
 void readAngles(){
 	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
-	 uint8_t dummy_tx[3] = {0xFF, 0xFF, 0xFF};
-//	 HAL_SPI_TransmitReceive(&hspi2, dummy_tx, tx_bytes, 3, 1000);
-	 HAL_SPI_Receive(&hspi2, tx_bytes, 3, 1000); //1000ms delay
+	 HAL_SPI_Receive(&hspi2, tx_bytes, 3, 200); //200ms delay
 	 HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
 
-void sendCCR(double x, double y, double z){
-	ccrAnlge = ArmAnglesCCR_centered(x,y,z);
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //green light instead of red light to indicate motors moving
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, ccrAnlge.ccr_base); //PA10 -> PA8
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccrAnlge.ccr_a1); //PA9 ->
-	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, ccrAnlge.ccr_a2); //PA8
-	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); //green light instead of red light to indicate motors moving
+void sendCCR(uint16_t x, uint16_t y, uint16_t z){
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, x); //PA10 -> PA8
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, y); //PA9 ->
+	  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, z); //PA8
 }
 
 void PwmStart(uint8_t channelNumber1, uint8_t channelNumber2, uint8_t channelNumber3){
@@ -248,16 +383,16 @@ float adcToVolts(uint32_t rawReading){
 	return result;
 }
 
-void readAdc(){
-	 HAL_ADC_Start(&hadc1); //TODO, pas bon
+float readAdc(){
 	 uint32_t adc_value = 0;
 	 float adc_value_VOlts = 0;
-	 if(HAL_ADC_PollForConversion(&hadc1, 10)== HAL_OK){
-		 adc_value = HAL_ADC_GetValue(&hadc1);
-		 adc_value_VOlts = adcToVolts(adc_value);
-		 /* Restart ADC conversion */
-		 HAL_ADC_Start(&hadc1);
-	  }
+
+	  HAL_ADC_Start(&hadc1);
+	  HAL_ADC_PollForConversion(&hadc1, 10);
+	 adc_value = HAL_ADC_GetValue(&hadc1);
+	HAL_ADC_Stop(&hadc1);
+	 adc_value_VOlts = adcToVolts(adc_value);
+	 return adc_value_VOlts;
 }
 
 ArmAnglesCCR_t ArmAnglesCCR_centered(double x, double y, double z)

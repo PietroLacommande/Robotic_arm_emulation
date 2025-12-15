@@ -46,8 +46,7 @@ typedef struct {
 #define ADC_MAX_VALUE 4095 //(2^12bits) -1
 #define REF_VOLTAGE 3.3f //volts
 #define INITIAL_POSITION_SERVO 1500
-#define SUPERLOOP_PERIOD_MS 20
-#define SUPERLOOP_PERIOD_MS   1000u
+#define SUPERLOOP_PERIOD_MS   600u
 #define SERVO_SETTLE_MS      200u
 
 /* USER CODE END PD */
@@ -71,9 +70,8 @@ typedef enum {
     STATE_RESET
 } ArmState_t;
 
-static ArmState_t state = STATE_COMPUTE;
-static uint32_t loop_start_ms = 0u;
-static uint32_t wait_start_ms = 0u;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,6 +100,11 @@ ArmAnglesCCR_t ccrAnlge;
 int8_t tx_bytes_corrected[3] = {0,0,0}; // Tableau SPI à recevoir
 uint8_t tx_bytes[3] = {0,0,0}; // Tableau SPI à recevoir
 volatile uint32_t nbErrors=0;
+volatile uint8_t emergency_stop = 0;
+static ArmState_t state = STATE_COMPUTE;
+volatile uint8_t superloop_tick = 0;
+static uint32_t wait_start_ms = 0u;
+
 /* USER CODE END 0 */
 
 /**
@@ -137,8 +140,9 @@ int main(void)
   MX_ADC1_Init();
   MX_SPI2_Init();
   MX_TIM1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Base_Start_IT(&htim6);
   PwmStart(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
   int8_t y_position= 65;
   float base_error=0;
@@ -148,7 +152,20 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  loop_start_ms = HAL_GetTick();
+	  if (emergency_stop)
+	  {
+	      PwmStop(TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
+	      HAL_TIM_Base_Stop_IT(&htim6);
+	      turnOffLedGreen();
+	      continue;
+	  }
+
+
+	  if(superloop_tick ==0){
+		  continue;
+	  }
+	  superloop_tick=0;
+
 	  switch(state){
 
 		  case STATE_COMPUTE:
@@ -159,15 +176,15 @@ int main(void)
 
 		  case STATE_SEND:
 			  sendCCR(ccrAnlge.ccr_base,ccrAnlge.ccr_a1,ccrAnlge.ccr_a2);
+			  wait_start_ms = HAL_GetTick();
 			  state = STATE_WAIT;
 			  break;
 
 		  //very long, upto 200ms
 		  case STATE_WAIT:
-			  if ((HAL_GetTick() - wait_start_ms) >= SERVO_SETTLE_MS)
-			  {
-				  state = STATE_READ;
-			  }
+			   if ((HAL_GetTick() - wait_start_ms) >= SERVO_SETTLE_MS){
+					state = STATE_READ;
+			   }
 			  break;
 
 		  //very long, upto 200ms
@@ -208,15 +225,15 @@ int main(void)
 		  case STATE_RESET:
 			  initialPosition();
 			  turnOffLedGreen();
-			  y_position *= (-1); //toggle y position
+			  y_position = -y_position; //toggle y position
+			  state = STATE_COMPUTE;
+			  break;
+
+		  default:
 			  state = STATE_COMPUTE;
 			  break;
 	  }
-	  uint32_t elapsed_ms = HAL_GetTick() - loop_start_ms;
-	 if (elapsed_ms < SUPERLOOP_PERIOD_MS)
-	 {
-		 HAL_Delay(SUPERLOOP_PERIOD_MS - elapsed_ms);
-	 }
+
 
     /* USER CODE END WHILE */
 
@@ -274,9 +291,26 @@ void SystemClock_Config(void)
   }
 }
 
-
-
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPIO_PIN_4)
+    {
+        emergency_stop = 1;
+    }
+}
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM6)
+    {
+        superloop_tick = 1;
+    }
+}
+
+
+
 uint16_t correctAngle(int8_t base_meas, float base_error){
 	// Apply correction
 	if (base_error > 0)
