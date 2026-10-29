@@ -29,9 +29,9 @@ Robotic_arm_emulation/
 - `Sensor_gei1093_3/` – provided by the professor for sensor support and system integration
 
 ## Features
-- Inverse-kinematics-based movement calculation
-- PWM servo control
+- State machine logic
 - ADC and SPI sensor integration
+- PWM servo control
 - Position verification and correction
 - Gripper activation and object detection
 - Emergency stop and reset logic
@@ -48,16 +48,3 @@ The program follows a state-based workflow:
 7. Activate gripper
 8. Return to the initial state
 
-## Skills Demonstrated
-- Embedded C development
-- STM32 HAL and peripheral configuration
-- Real-time control design
-- Sensor feedback integration
-- State-machine architecture
-- PWM motor control
-- Hardware/software debugging
-
-## Note
-The `Controller` folder represents the code developed for this project, while the `Sensor_gei1093_3` folder was provided by the professor as part of the course assignment. This separation highlights a well-structured university project where I implemented the main control logic and integrated it with the provided sensor platform.
-
-This project demonstrates good embedded systems organization: clear separation between my implementation and the provided infrastructure, while still showing a complete and functional robotic arm control system.
