@@ -1,165 +1,63 @@
 # Robotic Arm Emulation
 
-A structured embedded control project for a robotic arm emulator built around an STM32 microcontroller. The project focuses on real-time motion control, sensor feedback, PWM actuation, and state-based operational logic.
+This project is an embedded control system for a robotic arm implemented in C on an STM32 microcontroller. The goal is to control arm motion, read sensor feedback, validate motion accuracy, and manage gripper behavior in a structured and organized way.
 
-This repository showcases the controller logic implemented in the `Controller` folder, while the `Sensor_gei1093_3` project was provided by the professor as the sensor-side reference/development environment.
+## Project Overview
+The main development work for this project was completed in the `Controller` folder. This folder contains the firmware I implemented for the robotic arm logic, motor control, state management, and feedback handling.
 
-## Project overview
+The `Sensor_gei1093_3` folder was provided by the professor and serves as the sensor-side project used alongside the controller implementation. It is not the primary code developed by me, but it is an important part of the full system integration.
 
-The system is designed to emulate and control a 3-axis robotic arm using:
-
-- PWM signal generation for servo control
-- ADC-based signal acquisition for gripper detection
-- SPI communication for reading angular feedback
-- GPIO-based I/O and emergency stop handling
-- Finite-state control logic for compute, send, read, correct, grip, and reset cycles
-
-The main firmware is centered in:
-
-- `Controller/Core/Src/main.c`
-- `Controller/Core/Inc/main.h`
-
-## Repository structure
-
+## Repository Structure
 ```text
 Robotic_arm_emulation/
 ├── Controller/
 │   ├── Controller.ioc
 │   └── Core/
 │       ├── Inc/
-│       │   ├── adc.h
-│       │   ├── gpio.h
-│       │   ├── main.h
-│       │   ├── spi.h
-│       │   ├── stm32l4xx_hal_conf.h
-│       │   ├── stm32l4xx_it.h
-│       │   ├── tim.h
-│       │   └── usart.h
 │       └── Src/
-│           ├── adc.c
-│           ├── gpio.c
-│           ├── main.c
-│           ├── spi.c
-│           ├── stm32l4xx_hal_msp.c
-│           ├── stm32l4xx_it.c
-│           ├── syscalls.c
-│           ├── sysmem.c
-│           ├── system_stm32l4xx.c
-│           ├── tim.c
-│           └── usart.c
 ├── Sensor_gei1093_3/
 │   ├── Sensor_gei1093_3.ioc
 │   └── Core/
-│       ├── Inc/
-│       └── Src/
 ├── .gitignore
 ├── README.md
-└── LICENSE (if present in the project)
 ```
 
-## Main controller functionality
+## Main Components
+- `Controller/` – my codebase for the robotic arm controller
+- `Controller/Core/Src` – main firmware logic, state machine, motion computation, PWM control, and sensor interaction
+- `Controller/Core/Inc` – generated driver headers and interface definitions
+- `Sensor_gei1093_3/` – provided by the professor for sensor support and system integration
 
-The controller side implements the central robotic arm behavior in `main.c` and is organized around a state machine.
-
-### Core behaviors
-
-- Position planning using inverse kinematics for target coordinates
-- Conversion from geometric arm angles to PWM duty cycle values
-- Motor command transmission through timer channels
-- Feedback acquisition from sensor data over SPI
-- Error detection and correction for base angle mismatch
+## Features
+- Inverse-kinematics-based movement calculation
+- PWM servo control
+- ADC and SPI sensor integration
+- Position verification and correction
 - Gripper activation and object detection
-- Emergency-stop safety mode
-- Reset to initial position after each cycle
+- Emergency stop and reset logic
+- Organized embedded firmware structure
 
-### State machine
+## Control Flow
+The program follows a state-based workflow:
+1. Compute target arm position
+2. Send motor commands
+3. Wait for servo stabilization
+4. Read sensor feedback
+5. Verify position accuracy
+6. Correct errors if needed
+7. Activate gripper
+8. Return to the initial state
 
-The firmware follows a structured workflow:
+## Skills Demonstrated
+- Embedded C development
+- STM32 HAL and peripheral configuration
+- Real-time control design
+- Sensor feedback integration
+- State-machine architecture
+- PWM motor control
+- Hardware/software debugging
 
-1. `STATE_COMPUTE`  
-   Calculates the desired target position and the corresponding arm angles.
+## Note
+The `Controller` folder represents the code developed for this project, while the `Sensor_gei1093_3` folder was provided by the professor as part of the course assignment. This separation highlights a well-structured university project where I implemented the main control logic and integrated it with the provided sensor platform.
 
-2. `STATE_SEND`  
-   Sends the computed PWM values to the actuators.
-
-3. `STATE_WAIT`  
-   Allows the servo system to settle after movement.
-
-4. `STATE_READ`  
-   Reads the measured angle values from the sensor.
-
-5. `STATE_VERIFY`  
-   Compares measured and desired positions.
-
-6. `STATE_CORRECT`  
-   Adjusts incorrect base-angle values.
-
-7. `STATE_GRIP`  
-   Activates the gripper and validates object capture.
-
-8. `STATE_RESET`  
-   Returns the arm to the initial configuration.
-
-## Hardware and embedded architecture
-
-This project is built for STM32-based development and leverages STM32 HAL drivers generated through STM32CubeMX / `.ioc` configuration.
-
-### Peripheral usage
-
-- `TIM1` for PWM servo control
-- `TIM6` for periodic superloop timing
-- `ADC1` for gripper sensing / voltage acquisition
-- `SPI2` for sensor communication
-- `USART2` for serial communication support
-- `GPIO` for LED indicators and control signals
-
-## Key technical features
-
-### 1. Kinematic arm control
-The controller computes target arm orientation from x/y/z position inputs using geometric relationships and inverse kinematics. The code converts these values into servo command values using a centered CCR conversion model.
-
-### 2. Closed-loop correction
-The system reads the actual angular state from the sensor, compares it with the desired position, and applies a correction step if the base angle is off.
-
-### 3. Safety logic
-The firmware includes an emergency stop mechanism triggered through an external interrupt. When the stop is active, the controller disables PWM and halts motion.
-
-### 4. Gripper interaction
-The project includes a simple gripper activation routine and a reading path through ADC to determine whether an object has been successfully grasped.
-
-## Notes on the sensor project
-
-The folder `Sensor_gei1093_3` is a separate STM32 project provided by the professor for the sensor side of the system. It is not the main implementation area of this repository; rather, it complements the controller code and provides the sensor infrastructure used during development.
-
-This repository is focused on the control-side implementation and the embedded logic that drives the robotic arm behavior.
-
-## What this project demonstrates
-
-This project reflects a strong embedded systems skill set, including:
-
-- Real-time firmware design
-- Microcontroller peripheral configuration
-- PWM control and actuator synchronization
-- Sensor readback and feedback validation
-- State-machine software architecture
-- Safety mechanisms in embedded systems
-- Hardware-software integration in C
-
-## Recommended usage
-
-1. Open the `Controller` project in STM32CubeIDE or equivalent IDE.
-2. Configure and build the firmware for the target STM32 board.
-3. Ensure the sensor module and actuator wiring match the SPI / PWM / GPIO interfaces.
-4. Use the state-machine workflow and calibration logic to tune servo movement.
-
-## Acknowledgements
-
-- `Controller` code was developed as the main project implementation.
-- `Sensor_gei1093_3` was provided by the professor as part of the laboratory/school assignment.
-- STM32 HAL libraries and Cube-generated files support the embedded application architecture.
-
-## Conclusion
-
-This project demonstrates a practical application of embedded control and robotics principles in C. It combines motion planning, sensor feedback, actuator command handling, and safety-oriented software design into a single, organized controller firmware project.
-
-The code is structured around clear separation between system setup, peripheral initialization, and logic stages, making it a good example of organized embedded software design.
+This project demonstrates good embedded systems organization: clear separation between my implementation and the provided infrastructure, while still showing a complete and functional robotic arm control system.
